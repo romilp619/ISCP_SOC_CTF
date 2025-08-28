@@ -18,8 +18,8 @@ Pandas library (install via pip install pandas)
 Installation
 
 Clone the repo:
-textgit clone https://github.com/yourusername/pii-redactor.git
-cd pii-redactor
+git clone https://github.com/romilp619/ISCP_SOC_CTF
+cd ISCP_SOC_CTF
 
 Install dependencies:
 pip install pandas
