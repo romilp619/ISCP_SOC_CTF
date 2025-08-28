@@ -244,7 +244,7 @@ class PIIRedactor:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python pii_redactor.py <input.csv>")
+        print("Usage: python3 detector_Romil_Patel.py <input.csv>")
         sys.exit(1)
 
     infile = sys.argv[1]
@@ -252,7 +252,7 @@ def main():
         print(f"File not found: {infile}")
         sys.exit(1)
 
-    out = "pii_redacted_output.csv"
+    out = "redacted_output_Romil_Patel.csv"
     print("Running PII redaction...")
     worker = PIIRedactor()
     worker.process_csv(infile, out)
