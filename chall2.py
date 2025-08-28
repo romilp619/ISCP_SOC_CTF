@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
 PII Detection + Redaction Script
-- written for ISCP dataset experiments
-- draft v1.0 (might tweak later)
 """
 
 import re
@@ -11,28 +9,18 @@ import pandas as pd
 import sys
 import os
 
-# Not using all of typing here, but keeping it in case we expand later
-from typing import Dict, Any, Tuple, List
-
 
 class PIIRedactor:
-    """
-    Quick-and-dirty class to scan CSV/json rows and hide PII.
-    Note: This follows ISCP-ish guidelines, but I’ve added my own tweaks.
-    """
+    """Class to find and hide PII from data"""
 
     def __init__(self):
-        # might expand this list later if new PII pops up
+        # Main PII fields
         self.primary_pii = ['phone', 'aadhar', 'passport', 'upi_id']
         self.secondary_pii = ['name', 'email', 'address', 'device_id', 'ip_address']
 
     def _to_str(self, val):
-        """
-        Convert stuff to string (handles weird Excel exports where numbers
-        become floats or scientific notation)
-        """
+        # Convert any value to string
         if isinstance(val, (int, float)):
-            # quick hack to avoid "1.23e+12" formatting
             if val == int(val):
                 return str(int(val))
             else:
@@ -40,17 +28,17 @@ class PIIRedactor:
         return str(val) if val is not None else ""
 
     def _is_phone(self, txt):
-        """Basic Indian phone number check"""
+        # Check if value looks like a phone number
         only_digits = re.sub(r"\D", "", str(txt))
         return len(only_digits) == 10 and only_digits[0] in "6789"
 
     def _is_aadhar(self, txt):
-        """12 digit Aadhar (super naive check, not checksum validated)"""
+        # Check if value looks like an Aadhar number
         digits = re.sub(r"\D", "", str(txt))
         return len(digits) == 12
 
     def _is_passport(self, txt):
-        """Indian passport like A1234567 or AB123456"""
+        # Check if value looks like a passport
         cleaned = str(txt).strip().upper()
         return bool(
             re.match(r"^[A-Z]\d{7,8}$", cleaned)
@@ -58,24 +46,23 @@ class PIIRedactor:
         )
 
     def _is_upi(self, txt):
-        """UPI ID: something@bank (not quite email)"""
+        # Check if value looks like UPI ID
         s = str(txt).strip()
         if "@" not in s:
             return False
         user, provider = s.split("@", 1)
-        # crude heuristic: UPI providers don’t look like domains
         if "." in provider and len(provider.split(".")) > 1:
             return False
         return True
 
     def _is_email(self, txt):
-        """regex-y email detection"""
+        # Check if value looks like an email
         return bool(
             re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}$", str(txt))
         )
 
     def _is_name(self, txt):
-        """Naive full name check: at least 2 words, no obvious junk"""
+        # Check if value looks like a full name
         if not txt or not isinstance(txt, str):
             return False
         words = txt.strip().split()
@@ -86,7 +73,7 @@ class PIIRedactor:
         return all(re.match(r"^[A-Za-z][A-Za-z\.\-']*$", w) for w in words)
 
     def _is_address(self, txt):
-        """Check for address-ish strings: commas + numbers + length"""
+        # Check if value looks like an address
         if not txt or not isinstance(txt, str):
             return False
         val = txt.strip()
@@ -98,7 +85,7 @@ class PIIRedactor:
         )
 
     def _is_device_or_ip(self, txt):
-        """Check for IP or device IDs"""
+        # Check if value looks like IP or device ID
         s = str(txt).strip()
         if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", s):
             try:
@@ -146,7 +133,7 @@ class PIIRedactor:
         return "XXX.XXX.XXX." + chunks[-1] if len(chunks) == 4 else "XXX.XXX.XXX.XXX"
 
     def _mask(self, pii_type, val):
-        """dispatch masking"""
+        # Send value to right masking function
         val = self._to_str(val)
         if pii_type == "phone":
             return self._mask_phone(val)
@@ -169,15 +156,12 @@ class PIIRedactor:
         return val
 
     def analyze(self, row_dict: dict):
-        """
-        Check one record dict for PII.
-        Returns: (bool, dict with redacted vals)
-        """
+        # Check one row for PII and return masked data
         found_any = False
         redacted = {}
         detected_types = {}
 
-        # first pass: standalone
+        # Check main fields
         for k, v in row_dict.items():
             s = self._to_str(v)
             if k == "phone" or self._is_phone(s):
@@ -193,7 +177,7 @@ class PIIRedactor:
                 detected_types[k] = "upi_id"
                 found_any = True
 
-        # second pass: combinatorial
+        # Check extra fields
         combo = {}
         for k, v in row_dict.items():
             s = self._to_str(v)
@@ -206,7 +190,7 @@ class PIIRedactor:
             elif k in ["device_id", "ip_address"] and self._is_device_or_ip(s):
                 combo[k] = k
 
-        # heuristics: 2+ combo fields OR combo + device/ip
+        # If 2+ extra fields or extra + device/ip, mark as PII
         if len([v for v in combo.values() if v in ["name", "email", "address"]]) >= 2:
             detected_types.update(combo)
             found_any = True
@@ -214,7 +198,7 @@ class PIIRedactor:
             detected_types.update(combo)
             found_any = True
 
-        # finally, redact
+        # Apply masking
         for k, v in row_dict.items():
             if k in detected_types:
                 redacted[k] = self._mask(detected_types[k], v)
@@ -224,10 +208,7 @@ class PIIRedactor:
         return found_any, redacted
 
     def process_csv(self, infile, outfile):
-        """
-        Run full CSV through redaction.
-        Input: CSV with record_id + data_json
-        """
+        # Process full CSV and save results
         df = pd.read_csv(infile)
         results = []
         errors = 0
@@ -244,8 +225,7 @@ class PIIRedactor:
                         "is_pii": has_pii,
                     }
                 )
-            except Exception as e:
-                # fall back: dump original json if error
+            except Exception:
                 errors += 1
                 results.append(
                     {
